@@ -9,5 +9,4 @@
 
         Task<bool> PingAsync();
     }
-
 }

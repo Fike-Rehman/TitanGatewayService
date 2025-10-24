@@ -6,27 +6,13 @@ namespace TitanGatewayService
     {
         private readonly ILogger<Worker> _logger;
         private readonly List<IDeviceClient> _devices = new();
+        private readonly IDeviceConfigurationManager _deviceManager;
 
-        public Worker(ILogger<Worker> logger, IConfiguration config)
+        public Worker(ILogger<Worker> logger, IDeviceConfigurationManager deviceManager)
         {
-            _logger = logger;
-
-            foreach (var deviceConfig in config.GetSection("Devices").GetChildren())
-            {
-                var type = deviceConfig["Type"];
-                var name = deviceConfig["Name"];
-                var location = deviceConfig["Location"];
-                var baseUrl = deviceConfig["BaseUrl"];
-
-                IDeviceClient device = type switch
-                {
-                    "Oberon" => new OberonClient(name, location, baseUrl),
-                    "Miranda" => new MirandaClient(name, location, baseUrl),
-                    _ => throw new NotSupportedException($"Unknown device type {type}")
-                };
-
-                _devices.Add(device);
-            }
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _deviceManager = deviceManager ?? throw new ArgumentNullException(nameof(deviceManager));
+            _devices.AddRange(_deviceManager.GetAllDevices());
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,15 +23,12 @@ namespace TitanGatewayService
                 {
                     if (await device.PingAsync())
                     {
-                        _logger.LogInformation($"{device.Name} is online");
-
+                        _logger.LogInformation("{DeviceName}, Location: {DeviceLocation} is online", device.Name, device.Location);
                     }
                     else
                     {
-                        _logger.LogWarning($"{device.Name} is offline");
+                        _logger.LogWarning("{DeviceName} is offline", device.Name);
                     }
-
-                    _logger.LogWarning($"{device.Name} is offline");
                 }
 
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);

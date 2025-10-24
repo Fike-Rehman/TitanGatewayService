@@ -1,6 +1,4 @@
-﻿using static System.Net.WebRequestMethods;
-
-namespace TitanGatewayService.Devices
+﻿namespace TitanGatewayService.Devices
 {
     public class OberonClient : IDeviceClient
     {
