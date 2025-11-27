@@ -21,7 +21,7 @@ namespace TitanGatewayService
             {
                 foreach (var device in _devices)
                 {
-                    if (await device.PingAsync())
+                    if (await device.PingAsync() == "OK")
                     {
                         _logger.LogInformation("{DeviceName}, Location: {DeviceLocation} is online", device.Name, device.Location);
                     }

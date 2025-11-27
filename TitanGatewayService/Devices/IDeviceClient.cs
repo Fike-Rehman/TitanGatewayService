@@ -3,10 +3,11 @@
     public interface IDeviceClient
     {
         string Name { get; }
+
         string BaseUrl { get; }
 
         string Location { get; }
 
-        Task<bool> PingAsync();
+        Task<string> PingAsync();
     }
 }
