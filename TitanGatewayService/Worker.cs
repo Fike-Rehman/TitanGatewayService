@@ -1,3 +1,4 @@
+using CTS.Utilities.Common;
 using TitanGatewayService.Devices;
 
 namespace TitanGatewayService
@@ -7,16 +8,20 @@ namespace TitanGatewayService
         private readonly ILogger<Worker> _logger;
         private readonly List<IDeviceClient> _devices = new();
         private readonly IDeviceConfigurationManager _deviceManager;
+        private readonly HttpClient _httpClient;
 
-        public Worker(ILogger<Worker> logger, IDeviceConfigurationManager deviceManager)
+        public Worker(ILogger<Worker> logger, IDeviceConfigurationManager deviceManager, HttpClient httpClient)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _deviceManager = deviceManager ?? throw new ArgumentNullException(nameof(deviceManager));
-            _devices.AddRange(_deviceManager.GetAllDevices());
+            _devices.AddRange(_deviceManager.GetAllDevices());  
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+           
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 foreach (var device in _devices)
@@ -35,5 +40,4 @@ namespace TitanGatewayService
             }
         }
     }
-
 }

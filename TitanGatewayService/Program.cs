@@ -35,6 +35,7 @@ builder.Logging.AddSerilog(Log.Logger);  // use Serilog instead
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddSingleton<IDeviceConfigurationManager, DeviceConfigurationManager>();
 
+
 Log.Information("Starting Titan Gateway Service. Please Stand by ....");
 
 var host = builder.Build();

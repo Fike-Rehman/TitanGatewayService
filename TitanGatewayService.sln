@@ -1,9 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.13.36105.23 d17.13
+# Visual Studio Version 18
+VisualStudioVersion = 18.3.11222.16 d18.3
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TitanGatewayService", "TitanGatewayService\TitanGatewayService.csproj", "{06519661-7132-478A-8268-06DDB6F52E29}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CTS.Utilities.Common", "CTS.Utilities.Common\CTS.Utilities.Common.csproj", "{C51C21A6-36D2-4F6A-9FFA-4A7B2E5DA5DE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +17,10 @@ Global
 		{06519661-7132-478A-8268-06DDB6F52E29}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{06519661-7132-478A-8268-06DDB6F52E29}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{06519661-7132-478A-8268-06DDB6F52E29}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C51C21A6-36D2-4F6A-9FFA-4A7B2E5DA5DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C51C21A6-36D2-4F6A-9FFA-4A7B2E5DA5DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C51C21A6-36D2-4F6A-9FFA-4A7B2E5DA5DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C51C21A6-36D2-4F6A-9FFA-4A7B2E5DA5DE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
