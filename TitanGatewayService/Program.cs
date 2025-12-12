@@ -1,7 +1,7 @@
 using TitanGatewayService;
 using Serilog;
 using Serilog.Sinks.SystemConsole.Themes;
-
+using TitanGatewayService.Extensions;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -35,6 +35,8 @@ builder.Logging.AddSerilog(Log.Logger);  // use Serilog instead
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddSingleton<IDeviceConfigurationManager, DeviceConfigurationManager>();
 
+// Add resilient HTTP clients with built-in retry policies
+builder.Services.AddResilientHttpClients();
 
 Log.Information("Starting Titan Gateway Service. Please Stand by ....");
 

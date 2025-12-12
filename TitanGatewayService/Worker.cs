@@ -8,20 +8,21 @@ namespace TitanGatewayService
         private readonly ILogger<Worker> _logger;
         private readonly List<IDeviceClient> _devices = new();
         private readonly IDeviceConfigurationManager _deviceManager;
-        private readonly HttpClient _httpClient;
+        private readonly SolarApiClient _solarApiClient;
 
-        public Worker(ILogger<Worker> logger, IDeviceConfigurationManager deviceManager, HttpClient httpClient)
+        public Worker(ILogger<Worker> logger, IDeviceConfigurationManager deviceManager, SolarApiClient solarApiClient)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            _solarApiClient = solarApiClient ?? throw new ArgumentNullException(nameof(solarApiClient));
             _deviceManager = deviceManager ?? throw new ArgumentNullException(nameof(deviceManager));
             _devices.AddRange(_deviceManager.GetAllDevices());  
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-           
+            var (sunrise, sunset) = await _solarApiClient.GetSolarTimesAsync();
 
+            _logger.LogInformation("Sunrise at: {Sunrise}, Sunset at: {Sunset}", sunrise, sunset);
             while (!stoppingToken.IsCancellationRequested)
             {
                 foreach (var device in _devices)
