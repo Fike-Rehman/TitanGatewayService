@@ -1,27 +1,29 @@
 ﻿using CTS.Utilities.Common;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
+using TitanGatewayService.Extensions;
 
 namespace TitanGatewayService
 {
     public class SolarApiClient
     {
-        // Minneapolis coordinates
-        private const double latitude = 44.9799700;
-        private const double longitude = -93.2638400;
-
         private readonly HttpClient _httpClient;
+        private readonly IOptions<SolarApiClientOptions> _options;
 
-        public SolarApiClient(HttpClient httpClient)
+        public SolarApiClient(
+            HttpClient httpClient,
+            IOptions<SolarApiClientOptions> options)
         {
+            _options = options ?? throw new ArgumentNullException(nameof(options));
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
 
-            _httpClient.BaseAddress = new Uri("https://api.sunrise-sunset.org/");
-            _httpClient.Timeout = TimeSpan.FromSeconds(10);
+            _httpClient.BaseAddress = new Uri(_options.Value.BaseUrl);
+            _httpClient.Timeout = _options.Value.TimeoutSeconds;
         }
 
         public async Task<(DateTime sunrise, DateTime sunset)> GetSolarTimesAsync()
         {
-            var url = $"json?lat={latitude}&lng={longitude}&formatted=0";
+            var url = $"json?lat={_options.Value.Latitude}&lng={_options.Value.Longitude}&formatted=0";
 
             try
             {

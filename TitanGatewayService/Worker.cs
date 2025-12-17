@@ -1,4 +1,3 @@
-using CTS.Utilities.Common;
 using TitanGatewayService.Devices;
 
 namespace TitanGatewayService
