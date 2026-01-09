@@ -1,5 +1,6 @@
 ﻿using Polly;
 using Polly.Extensions.Http;
+using TitanGatewayService.Devices;
 
 namespace TitanGatewayService.Extensions
 {
@@ -7,16 +8,18 @@ namespace TitanGatewayService.Extensions
     {
         public static IServiceCollection AddResilientHttpClients(this IServiceCollection services)
         {
-            services.AddSolarApi(
+            services.AddSolarApiClient(
                 services.BuildServiceProvider()
                         .GetRequiredService<IConfiguration>());
 
             // Add other resilient HTTP clients here as needed
 
+            services.AddDeviceHttpClients();
+
             return services;
         }
 
-        public static IServiceCollection AddSolarApi(
+        private static IServiceCollection AddSolarApiClient(
             this IServiceCollection services,
             IConfiguration configuration)
         {
@@ -40,6 +43,21 @@ namespace TitanGatewayService.Extensions
 
             // Register typed HttpClient
             services.AddHttpClient<SolarApiClient>()
+                    .AddPolicyHandler(retryPolicy);
+
+            return services;
+        }
+
+        private static IServiceCollection AddDeviceHttpClients(
+            this IServiceCollection services)
+        {
+            var retryPolicy = HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .OrResult(msg => !msg.IsSuccessStatusCode)
+                .WaitAndRetryAsync(2, attempt =>
+                    TimeSpan.FromMilliseconds(200 * attempt));
+
+            services.AddHttpClient<MirandaClient>()
                     .AddPolicyHandler(retryPolicy);
 
             return services;

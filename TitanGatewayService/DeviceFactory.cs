@@ -2,15 +2,34 @@
 
 namespace TitanGatewayService
 {
-    public static class DeviceFactory
+
+    public class DeviceFactory : IDeviceFactory
     {
-        public static IDeviceClient Create(string type, string name, string location, string baseUrl)
+        private readonly IHttpClientFactory _httpClientFactory;
+
+        public DeviceFactory(IHttpClientFactory httpClientFactory)
         {
-            return type switch
+            _httpClientFactory = httpClientFactory;
+        }
+
+        public IDeviceClient Create(DeviceConfig config)
+        {
+            return config.Type switch
             {
-                "Oberon" => new OberonClient(name, location, baseUrl),
-                "Miranda" => new MirandaClient(name, location, baseUrl),
-                _ => throw new NotSupportedException($"Unknown device type: {type}")
+                "Miranda" => new MirandaClient(
+                    _httpClientFactory.CreateClient(),
+                    config.Name,
+                    config.Location,
+                    config.BaseUrl),
+
+                "Oberon" => new OberonClient(
+                _httpClientFactory.CreateClient(),
+                config.Name,
+                config.Location,
+                config.BaseUrl),
+
+                _ => throw new NotSupportedException(
+                        $"Unknown device type {config.Type}")
             };
         }
     }

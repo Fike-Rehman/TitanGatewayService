@@ -4,6 +4,6 @@ namespace TitanGatewayService
 {
     public interface IDeviceConfigurationManager
     {
-        IReadOnlyCollection<IDeviceClient> GetAllDevices();
+        IReadOnlyList<DeviceConfig> GetAllDevices();
     }
 }

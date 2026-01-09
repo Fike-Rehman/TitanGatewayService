@@ -5,14 +5,19 @@ namespace TitanGatewayService.Devices
 {
     public class OberonClient : IDeviceClient
     {
+        private readonly HttpClient _httpClient;
+
         public string Name { get; }
-
         public string BaseUrl { get; }
-
         public string Location { get; }
 
-        public OberonClient(string name, string location, string baseUrl)
+        public OberonClient(
+            HttpClient httpClient,
+            string name, 
+            string location, 
+            string baseUrl)
         {
+            _httpClient = httpClient;
             Name = name;
             Location = location;
             BaseUrl = baseUrl;
@@ -20,32 +25,17 @@ namespace TitanGatewayService.Devices
 
         public async Task<string> PingAsync()
         {
-            var pingResponse = "";
-
-            using (var client = new HttpClient())
+            try
             {
-                client.BaseAddress = new Uri(BaseUrl);
-                client.DefaultRequestHeaders.Accept.Clear();
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain"));
-                client.Timeout = TimeSpan.FromMilliseconds(10000);
+                var response = await _httpClient.GetAsync("ping");
 
-                try
-                {
-                    var response = await client.GetAsync("/ping");
-
-                    if (response.IsSuccessStatusCode)
-                    {
-                        pingResponse = "OK";
-                    }
-
-                }
-                catch (Exception x)
-                {
-                    // the request takes longer than 10 secs, it is timed out
-                    pingResponse = x.Message;
-                }
-
-                return pingResponse;
+                return response.IsSuccessStatusCode
+                    ? "OK"
+                    : $"HTTP {(int)response.StatusCode}";
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
             }
         }
     }

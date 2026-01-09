@@ -32,11 +32,17 @@ Log.Logger = new LoggerConfiguration()
 builder.Logging.ClearProviders();        // remove default console logger
 builder.Logging.AddSerilog(Log.Logger);  // use Serilog instead
 
-builder.Services.AddHostedService<Worker>();
-builder.Services.AddSingleton<IDeviceConfigurationManager, DeviceConfigurationManager>();
 
-// Add resilient HTTP clients with built-in retry policies
+
+
+// Add resilient HTTP clients with built-in retry policies for external services and devices
 builder.Services.AddResilientHttpClients();
+
+// Register application services
+builder.Services.AddSingleton<IDeviceConfigurationManager, DeviceConfigurationManager>();
+builder.Services.AddSingleton<IDeviceFactory, DeviceFactory>();
+builder.Services.AddSingleton<DeviceManager>();
+builder.Services.AddHostedService<Worker>();
 
 Log.Information("Starting Titan Gateway Service. Please Stand by ....");
 
