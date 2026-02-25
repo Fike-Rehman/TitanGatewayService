@@ -1,6 +1,7 @@
 ﻿using Polly;
 using Polly.Extensions.Http;
 using TitanGatewayService.Devices.Miranda;
+using TitanGatewayService.Devices.Oberon;
 
 namespace TitanGatewayService.Extensions
 {
@@ -58,6 +59,9 @@ namespace TitanGatewayService.Extensions
                     TimeSpan.FromMilliseconds(200 * attempt));
 
             services.AddHttpClient<MirandaClient>()
+                    .AddPolicyHandler(retryPolicy);
+
+            services.AddHttpClient<OberonClient>()
                     .AddPolicyHandler(retryPolicy);
 
             return services;

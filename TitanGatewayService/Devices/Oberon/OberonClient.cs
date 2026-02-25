@@ -21,6 +21,13 @@ namespace TitanGatewayService.Devices.Oberon
             Name = name;
             Location = location;
             BaseUrl = baseUrl;
+
+            _httpClient.BaseAddress = new Uri(BaseUrl);
+            _httpClient.Timeout = TimeSpan.FromSeconds(10);
+
+            _httpClient.DefaultRequestHeaders.Accept.Clear();
+            _httpClient.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("text/plain"));
         }
 
         public async Task<string> PingAsync()
