@@ -33,13 +33,10 @@ Log.Logger = new LoggerConfiguration()
 builder.Logging.ClearProviders();        // remove default console logger
 builder.Logging.AddSerilog(Log.Logger);  // use Serilog instead
 
-
-
-
-// Add resilient HTTP clients with built-in retry policies for external services and devices
+// Register resilient HTTP clients with built-in retry policies for external services and devices
 builder.Services.AddResilientHttpClients();
 
-// Register application services
+// Register other application services
 builder.Services
     .AddOptions<MirandaScheduleOptions>()
     .Bind(builder.Configuration.GetSection("MirandaSchedule"));

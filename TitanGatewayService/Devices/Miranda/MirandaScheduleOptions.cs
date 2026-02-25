@@ -16,21 +16,24 @@ namespace TitanGatewayService.Devices.Miranda
     {
         public string DeviceName { get; set; } = string.Empty;
         public string SwitchId { get; set; } = string.Empty;
-        public bool Enabled { get; set; } = true;
-        public MirandaActionSchedule On { get; set; } = new();
-        public MirandaActionSchedule Off { get; set; } = new();
+
+        // Sequence of scheduled events (order matters). Each event indicates whether it is an "On" or "Off" and its schedule.
+        public List<MirandaScheduledEvent> Events { get; set; } = new();
     }
 
-    public sealed class MirandaActionSchedule
+    public sealed class MirandaScheduledEvent
     {
-        // DailyTime | SolarOffset
+        // "On" or "Off"
+        public string Action { get; set; } = "On";
+
+        // Type of schedule for this event (DailyTime | SolarOffset)
         public string Type { get; set; } = "DailyTime";
 
         // Used when Type = DailyTime (example: "18:30:00")
         public TimeSpan? Time { get; set; }
 
         // Used when Type = SolarOffset (Sunrise | Sunset)
-        public string SolarEvent { get; set; } = "Sunset"; 
+        public string SolarEvent { get; set; } = "Sunset";
 
         // Used when Type = SolarOffset (can be negative)
         public int OffsetMinutes { get; set; } = 0;
