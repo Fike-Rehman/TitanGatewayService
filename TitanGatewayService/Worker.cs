@@ -32,7 +32,15 @@ namespace TitanGatewayService
                     }
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    // Expected when the host is shutting down (e.g. Ctrl+C).
+                    break;
+                }
             }
         }
     }
