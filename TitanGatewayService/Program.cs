@@ -39,6 +39,10 @@ builder.Logging.AddSerilog(Log.Logger);  // use Serilog instead
 builder.Services.AddResilientHttpClients();
 
 // Register application services
+builder.Services
+    .AddOptions<MirandaScheduleOptions>()
+    .Bind(builder.Configuration.GetSection("MirandaSchedule"));
+
 builder.Services.AddSingleton<IDeviceConfigurationManager, DeviceConfigurationManager>();
 builder.Services.AddSingleton<IDeviceFactory, DeviceFactory>();
 builder.Services.AddSingleton<DeviceManager>();
