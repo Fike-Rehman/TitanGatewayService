@@ -1,8 +1,9 @@
-﻿using TitanGatewayService.Devices;
+﻿using TitanGatewayService.Devices.Miranda;
+using TitanGatewayService.Devices.Oberon;
+using TitanGatewayService.Devices;
 
 namespace TitanGatewayService
 {
-
     public class DeviceFactory : IDeviceFactory
     {
         private readonly IHttpClientFactory _httpClientFactory;

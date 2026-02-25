@@ -1,7 +1,7 @@
 ﻿using System.Net.Http.Headers;
 using System.Runtime;
 
-namespace TitanGatewayService.Devices
+namespace TitanGatewayService.Devices.Oberon
 {
     public class OberonClient : IDeviceClient
     {

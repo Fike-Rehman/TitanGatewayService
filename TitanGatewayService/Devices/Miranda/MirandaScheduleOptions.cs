@@ -1,4 +1,4 @@
-namespace TitanGatewayService
+namespace TitanGatewayService.Devices.Miranda
 {
     public sealed class MirandaScheduleOptions
     {
@@ -30,7 +30,7 @@ namespace TitanGatewayService
         public TimeSpan? Time { get; set; }
 
         // Used when Type = SolarOffset (Sunrise | Sunset)
-        public string? SolarEvent { get; set; }
+        public string SolarEvent { get; set; } = "Sunset"; 
 
         // Used when Type = SolarOffset (can be negative)
         public int OffsetMinutes { get; set; } = 0;

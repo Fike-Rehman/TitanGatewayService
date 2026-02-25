@@ -1,6 +1,6 @@
 ﻿using Polly;
 using Polly.Extensions.Http;
-using TitanGatewayService.Devices;
+using TitanGatewayService.Devices.Miranda;
 
 namespace TitanGatewayService.Extensions
 {

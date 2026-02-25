@@ -2,6 +2,7 @@ using TitanGatewayService;
 using Serilog;
 using Serilog.Sinks.SystemConsole.Themes;
 using TitanGatewayService.Extensions;
+using TitanGatewayService.Devices.Miranda;
 
 var builder = Host.CreateApplicationBuilder(args);
 

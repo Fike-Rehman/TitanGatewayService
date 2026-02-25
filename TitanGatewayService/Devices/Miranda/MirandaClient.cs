@@ -1,6 +1,6 @@
 ﻿using System.Net.Http.Headers;
 
-namespace TitanGatewayService.Devices
+namespace TitanGatewayService.Devices.Miranda
 {
     public class MirandaClient : IDeviceClient
     {
