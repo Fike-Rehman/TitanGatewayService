@@ -3,6 +3,7 @@ using Serilog;
 using Serilog.Sinks.SystemConsole.Themes;
 using TitanGatewayService.Extensions;
 using TitanGatewayService.Devices.Miranda;
+using TitanGatewayService.Devices.Oberon;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -40,6 +41,10 @@ builder.Services.AddResilientHttpClients();
 builder.Services
     .AddOptions<MirandaScheduleOptions>()
     .Bind(builder.Configuration.GetSection("MirandaSchedule"));
+
+builder.Services
+    .AddOptions<OberonScheduleOptions>()
+    .Bind(builder.Configuration.GetSection("OberonSchedule"));
 
 builder.Services.AddSingleton<IDeviceConfigurationManager, DeviceConfigurationManager>();
 builder.Services.AddSingleton<IDeviceFactory, DeviceFactory>();
