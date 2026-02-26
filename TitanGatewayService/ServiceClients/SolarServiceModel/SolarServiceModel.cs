@@ -1,9 +1,10 @@
-﻿namespace CTS.Utilities.Common
+﻿
+namespace TitanGatewayService.ServiceClients.SolarServiceModel
 {
     public class SolarResponse
     {
-        public string? Status { get; set; }
-        public SolarResults? Results { get; set; }
+        public string Status { get; set; }
+        public SolarResults Results { get; set; }
 
     }
 
