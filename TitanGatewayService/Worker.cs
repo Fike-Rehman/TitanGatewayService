@@ -52,7 +52,8 @@ namespace TitanGatewayService
 
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                    // two mintue ping interval
+                    await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -132,6 +133,8 @@ namespace TitanGatewayService
                         device.Name, device.Location);
                 }
             }
+
+            _logger.LogInformation("");
         }
 
         private static string DescribeScheduledEvent(MirandaScheduledEvent ev)

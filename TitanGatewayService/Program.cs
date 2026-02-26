@@ -1,9 +1,10 @@
-using TitanGatewayService;
 using Serilog;
+using Serilog.Events;
 using Serilog.Sinks.SystemConsole.Themes;
-using TitanGatewayService.Extensions;
+using TitanGatewayService;
 using TitanGatewayService.Devices.Miranda;
 using TitanGatewayService.Devices.Oberon;
+using TitanGatewayService.Extensions;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -21,14 +22,19 @@ var fullLogPath = Path.IsPathRooted(logDirectory)
 Directory.CreateDirectory(fullLogPath);
 
 Log.Logger = new LoggerConfiguration()
+    // Suppress noisy framework HTTP client info logs
+    .MinimumLevel.Override("System.Net.Http", LogEventLevel.Warning)
+    .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
     .Enrich.FromLogContext()
     .WriteTo.Console(
         outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}",
         theme: SystemConsoleTheme.Colored)
     .WriteTo.File(
         Path.Combine(fullLogPath, "TitanGateway-.log"),
-        rollingInterval: RollingInterval.Day)
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 14)
     .CreateLogger();
+
 
 // Replace default logger and add Serilog
 builder.Logging.ClearProviders();        // remove default console logger
