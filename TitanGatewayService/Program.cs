@@ -15,11 +15,9 @@ var env = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Productio
 var logDirKey = env == "Development" ? "Logging:LogDirectory" : "Logging:ProductionLogDirectory";
 var logDirectory = builder.Configuration[logDirKey] ?? "Logs";
 
-var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\.."));
-
 var fullLogPath = Path.IsPathRooted(logDirectory)
     ? logDirectory
-    : Path.Combine(repoRoot, logDirectory);
+    : Path.Combine(AppContext.BaseDirectory, logDirectory);
 
 Directory.CreateDirectory(fullLogPath);
 
@@ -57,6 +55,7 @@ builder.Services
 builder.Services.AddSingleton<IDeviceConfigurationManager, DeviceConfigurationManager>();
 builder.Services.AddSingleton<IDeviceFactory, DeviceFactory>();
 builder.Services.AddSingleton<DeviceManager>();
+
 builder.Services.AddHostedService<Worker>();
 
 Log.Information("Starting Titan Gateway Service. Please Stand by ....");
