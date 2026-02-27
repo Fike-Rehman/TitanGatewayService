@@ -2,14 +2,14 @@
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$ProjectPath = ".\TitanGatewayService\TitanGatewayService.csproj",
+    [string]$ProjectPath = "..\TitanGatewayService\TitanGatewayService.csproj",
     
     [string]$PublishProfile = "DefaultProfile",
     [string]$Configuration = "Release",
     [string]$PublishPath = "\\Mushtari\cts2\TitanGatewayService",
     [string]$RemoteComputer = "Mushtari",
     [string]$ServiceName = "TitanGatewayService",
-    [string]$InstallPath = "C:\Services\TitanGatewayService",
+    [string]$InstallPath = "C:\Program Files\CTS\TitanGatewayService",
     [string]$DisplayName = "Titan Gateway Service"
 )
 

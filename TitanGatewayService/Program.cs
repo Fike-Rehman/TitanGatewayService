@@ -7,6 +7,8 @@ using TitanGatewayService.Devices.Oberon;
 using TitanGatewayService.Extensions;
 
 var builder = Host.CreateApplicationBuilder(args);
+builder.Services.AddWindowsService();
+
 
 // Determine environment and log directory
 var env = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production";
