@@ -1,16 +1,19 @@
 #Requires -RunAsAdministrator
 
+[CmdletBinding()]
 param(
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [string]$ProjectPath = "..\TitanGatewayService\TitanGatewayService.csproj",
-    
+
     [string]$PublishProfile = "DefaultProfile",
     [string]$Configuration = "Release",
-    [string]$PublishPath = "\\Mushtari\cts2\TitanGatewayService",
-    [string]$RemoteComputer = "Mushtari",
+    [string]$LocalPublishDir = "..\TitanGatewayService\bin\Release\net10.0\publish",
+    [string]$RemoteComputer = "mushtari",
     [string]$ServiceName = "TitanGatewayService",
     [string]$InstallPath = "C:\Program Files\CTS\TitanGatewayService",
-    [string]$DisplayName = "Titan Gateway Service"
+    [string]$DisplayName = "Titan Gateway Service",
+    [int]$KeepBackups = 3,
+    [int]$KeepReleases = 5
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,127 +23,176 @@ function Write-Log {
     Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
 }
 
-try {
-    # Step 1: Build and publish on local machine
-    Write-Log "Building and publishing project..."
-    Write-Log "Project: $ProjectPath"
-    Write-Log "Profile: $PublishProfile"
-    Write-Log "Output: $PublishPath"
-    
-    dotnet publish $ProjectPath -c $Configuration -p:PublishProfile=$PublishProfile
-    
-    if ($LASTEXITCODE -ne 0) {
-        throw "Publish failed with exit code $LASTEXITCODE"
+function Invoke-Robocopy {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [string[]]$Options = @('/MIR', '/R:2', '/W:2', '/NFL', '/NDL', '/NP')
+    )
+
+    $command = @($Source, $Destination) + $Options
+    & robocopy @command | Out-Host
+
+    if ($LASTEXITCODE -ge 8) {
+        throw "robocopy failed with exit code $LASTEXITCODE (Source='$Source', Destination='$Destination')."
     }
-    
-    Write-Log "Build and publish completed successfully"
-    Write-Log ""
-    
-    # Step 2: Deploy remotely on target machine
-    Write-Log "Connecting to remote machine: $RemoteComputer"
-    
-    $deploymentScript = @"
-        `$ErrorActionPreference = "Stop"
-        `$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        
-        function Write-Log {
-            param([string]`$Message)
-            Write-Host "[`$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] `$Message"
+}
+
+$resolvedProjectPath = (Resolve-Path $ProjectPath).Path
+$resolvedLocalPublishDir = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $LocalPublishDir))
+$remoteRootShare = "\\$RemoteComputer\$($InstallPath.Substring(0,1))$" + $InstallPath.Substring(2)
+$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$remoteReleaseShare = Join-Path $remoteRootShare "releases\release_$timestamp"
+
+try {
+    Write-Log "Publishing project for self-contained deployment..."
+    Write-Log "Project: $resolvedProjectPath"
+    Write-Log "Profile: $PublishProfile"
+    Write-Log "Configuration: $Configuration"
+    Write-Log "Local publish directory: $resolvedLocalPublishDir"
+
+    dotnet publish $resolvedProjectPath -c $Configuration -p:PublishProfile=$PublishProfile -p:PublishDir="$resolvedLocalPublishDir\"
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish failed with exit code $LASTEXITCODE"
+    }
+
+    if (-not (Test-Path $resolvedLocalPublishDir)) {
+        throw "Publish output directory not found: $resolvedLocalPublishDir"
+    }
+
+    $publishedExe = Join-Path $resolvedLocalPublishDir "TitanGatewayService.exe"
+    if (-not (Test-Path $publishedExe)) {
+        throw "Expected service executable not found in publish output: $publishedExe"
+    }
+
+    Write-Log "Ensuring remote base directories exist on $RemoteComputer"
+    Invoke-Command -ComputerName $RemoteComputer -ScriptBlock {
+        param($RemoteInstallPath)
+        $directories = @(
+            $RemoteInstallPath,
+            (Join-Path $RemoteInstallPath 'current'),
+            (Join-Path $RemoteInstallPath 'backups'),
+            (Join-Path $RemoteInstallPath 'releases')
+        )
+
+        foreach ($dir in $directories) {
+            if (-not (Test-Path $dir)) {
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            }
         }
-        
+    } -ArgumentList $InstallPath
+
+    Write-Log "Copying published files to remote release directory: $remoteReleaseShare"
+    New-Item -ItemType Directory -Path $remoteReleaseShare -Force | Out-Null
+    Invoke-Robocopy -Source $resolvedLocalPublishDir -Destination $remoteReleaseShare
+
+    Write-Log "Activating deployment and restarting service on $RemoteComputer"
+    Invoke-Command -ComputerName $RemoteComputer -ScriptBlock {
+        param(
+            $RemoteInstallPath,
+            $RemoteServiceName,
+            $RemoteDisplayName,
+            $RemoteTimestamp,
+            $MaxBackups,
+            $MaxReleases
+        )
+
+        $ErrorActionPreference = "Stop"
+
+        function Write-Log {
+            param([string]$Message)
+            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
+        }
+
+        function Invoke-Robocopy {
+            param(
+                [Parameter(Mandatory = $true)][string]$Source,
+                [Parameter(Mandatory = $true)][string]$Destination,
+                [string[]]$Options = @('/MIR', '/R:2', '/W:2', '/NFL', '/NDL', '/NP')
+            )
+
+            & robocopy $Source $Destination $Options | Out-Host
+            if ($LASTEXITCODE -ge 8) {
+                throw "robocopy failed with exit code $LASTEXITCODE (Source='$Source', Destination='$Destination')."
+            }
+        }
+
+        $currentPath = Join-Path $RemoteInstallPath 'current'
+        $backupsPath = Join-Path $RemoteInstallPath 'backups'
+        $releasesPath = Join-Path $RemoteInstallPath 'releases'
+        $releasePath = Join-Path $releasesPath "release_$RemoteTimestamp"
+        $backupPath = Join-Path $backupsPath "backup_$RemoteTimestamp"
+
         try {
-            # Create install directory if it doesn't exist
-            if (-not (Test-Path '$InstallPath')) {
-                New-Item -ItemType Directory -Path '$InstallPath' -Force | Out-Null
-                New-Item -ItemType Directory -Path '$InstallPath\current' -Force | Out-Null
-                New-Item -ItemType Directory -Path '$InstallPath\backups' -Force | Out-Null
-                New-Item -ItemType Directory -Path '$InstallPath\config' -Force | Out-Null
-                Write-Log "Created install directory structure at: $InstallPath"
+            $service = Get-Service -Name $RemoteServiceName -ErrorAction SilentlyContinue
+
+            if ($service -and $service.Status -ne 'Stopped') {
+                Write-Log "Stopping service: $RemoteServiceName"
+                Stop-Service -Name $RemoteServiceName -Force
+                $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
             }
-        
-            # Check if service exists
-            `$service = Get-Service -Name '$ServiceName' -ErrorAction SilentlyContinue
-        
-            # Stop the service if running
-            if (`$service) {
-                Write-Log "Stopping service: $ServiceName"
-                Stop-Service -Name '$ServiceName' -Force
-                Start-Sleep -Seconds 2
+
+            if (Test-Path $currentPath) {
+                Write-Log "Backing up current deployment to $backupPath"
+                New-Item -ItemType Directory -Path $backupPath -Force | Out-Null
+                Invoke-Robocopy -Source $currentPath -Destination $backupPath
             }
-        
-            # Backup current version
-            `$currentPath = '$InstallPath\current'
-            if (Test-Path `$currentPath) {
-                `$backupPath = '$InstallPath\backups\backup_`$timestamp'
-                Write-Log "Backing up current version to: `$backupPath"
-                Copy-Item -Path `$currentPath -Destination `$backupPath -Recurse -Force
-                
-                # Clean up old backups (keep last 3 versions)
-                `$backups = Get-ChildItem -Path '$InstallPath\backups' -Directory | Sort-Object CreationTime -Descending
-                if (`$backups.Count -gt 3) {
-                    `$backups | Select-Object -Skip 3 | ForEach-Object {
-                        Write-Log "Removing old backup: `$(`$_.Name)"
-                        Remove-Item -Path `$_.FullName -Recurse -Force
-                    }
-                }
+
+            Write-Log "Promoting release from $releasePath to $currentPath"
+            New-Item -ItemType Directory -Path $currentPath -Force | Out-Null
+            Invoke-Robocopy -Source $releasePath -Destination $currentPath
+
+            $exePath = Join-Path $currentPath 'TitanGatewayService.exe'
+            if (-not (Test-Path $exePath)) {
+                throw "Service executable not found at expected path: $exePath"
             }
-        
-            # Deploy new version
-            Write-Log "Deploying new version from: $PublishPath"
-            Remove-Item -Path `$currentPath -Recurse -Force -ErrorAction SilentlyContinue
-            Copy-Item -Path '$PublishPath' -Destination `$currentPath -Recurse -Force
-        
-            # Copy shared config if it exists
-            `$configFile = '$InstallPath\config\appsettings.json'
-            if (Test-Path `$configFile) {
-                Write-Log "Restoring appsettings.json"
-                Copy-Item -Path `$configFile -Destination "`$currentPath\appsettings.json" -Force
+
+            if (-not $service) {
+                Write-Log "Creating Windows service: $RemoteServiceName"
+                sc.exe create $RemoteServiceName binPath= "`"$exePath`"" DisplayName= "`"$RemoteDisplayName`"" start= auto | Out-Host
+                sc.exe description $RemoteServiceName "Titan Gateway Service deployed via Build-And-Deploy.ps1" | Out-Host
             }
-        
-            # Create or update Windows Service
-            if (-not `$service) {
-                Write-Log "Creating Windows Service: $ServiceName"
-                sc.exe create '$ServiceName' binPath= "`$currentPath\TitanGatewayService.exe" DisplayName= "$DisplayName" start= auto
-                sc.exe config '$ServiceName' start= auto
+
+            Write-Log "Starting service: $RemoteServiceName"
+            Start-Service -Name $RemoteServiceName
+            $service = Get-Service -Name $RemoteServiceName
+            $service.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+
+            if ($service.Status -ne 'Running') {
+                throw "Service failed to start. Current status: $($service.Status)"
             }
-        
-            # Start the service
-            Write-Log "Starting service: $ServiceName"
-            Start-Service -Name '$ServiceName'
-            Start-Sleep -Seconds 3
-        
-            # Verify service is running
-            `$service = Get-Service -Name '$ServiceName'
-            if (`$service.Status -eq "Running") {
-                Write-Log "SUCCESS: Service is running"
-            } else {
-                throw "Service failed to start. Status: `$(`$service.Status)"
-            }
-        
-            Write-Log "Deployment completed successfully"
         }
         catch {
-            Write-Log "ERROR: `$(`$_.Exception.Message)"
-            
-            # Attempt rollback
-            Write-Log "Attempting rollback..."
-            `$latestBackup = Get-ChildItem -Path '$InstallPath\backups' -Directory | Sort-Object CreationTime -Descending | Select-Object -First 1
-            
-            if (`$latestBackup) {
-                Remove-Item -Path `$currentPath -Recurse -Force
-                Copy-Item -Path `$latestBackup.FullName -Destination `$currentPath -Recurse -Force
-                Write-Log "Rolled back to: `$(`$latestBackup.Name)"
-                Start-Service -Name '$ServiceName'
+            Write-Log "Deployment failed. Attempting rollback from backup..."
+            $latestBackup = Get-ChildItem -Path $backupsPath -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending | Select-Object -First 1
+            if ($latestBackup) {
+                New-Item -ItemType Directory -Path $currentPath -Force | Out-Null
+                Invoke-Robocopy -Source $latestBackup.FullName -Destination $currentPath
+                if (Get-Service -Name $RemoteServiceName -ErrorAction SilentlyContinue) {
+                    Start-Service -Name $RemoteServiceName -ErrorAction SilentlyContinue
+                }
+                Write-Log "Rollback complete using backup: $($latestBackup.Name)"
             }
-            
+
             throw
         }
-"@
 
-    Write-Log "Deploying to remote machine: $RemoteComputer"
-    Invoke-Command -ComputerName $RemoteComputer -ScriptBlock ([scriptblock]::Create($deploymentScript))
-    
-    Write-Log "Remote deployment completed successfully!"
+        Write-Log "Cleaning old backups (keep $MaxBackups)"
+        $oldBackups = Get-ChildItem -Path $backupsPath -Directory | Sort-Object CreationTime -Descending | Select-Object -Skip $MaxBackups
+        foreach ($oldBackup in $oldBackups) {
+            Remove-Item -Path $oldBackup.FullName -Recurse -Force
+        }
+
+        Write-Log "Cleaning old releases (keep $MaxReleases)"
+        $oldReleases = Get-ChildItem -Path $releasesPath -Directory | Sort-Object CreationTime -Descending | Select-Object -Skip $MaxReleases
+        foreach ($oldRelease in $oldReleases) {
+            Remove-Item -Path $oldRelease.FullName -Recurse -Force
+        }
+
+        Write-Log "Deployment succeeded and service is running."
+    } -ArgumentList $InstallPath, $ServiceName, $DisplayName, $timestamp, $KeepBackups, $KeepReleases
+
+    Write-Log "Done. Deployment completed successfully."
 }
 catch {
     Write-Log "ERROR: $($_.Exception.Message)"
