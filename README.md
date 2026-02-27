@@ -5,24 +5,28 @@ TitanGatewayService is a .NET Worker Service that runs as a Windows Service and 
 ## Prerequisites
 
 ### Development machine
+
 - Windows with PowerShell 5.1+.
 - .NET SDK that supports `net10.0`.
 - Network connectivity and PowerShell remoting access to the target computer.
 - Permission to administer the remote service and write to `C:\Program Files\CTS\TitanGatewayService`.
 
 ### Target computer
+
 - Windows machine with WinRM/PowerShell remoting enabled.
 - Service install path available at:
   - `C:\Program Files\CTS\TitanGatewayService`
 - Log directory configured in `appsettings.json`:
-  - `C:\CTS\Logs`
+  - `C:\Program Files\CTS\TitanGatewayService\Logs`
 
 ## One-time setup notes
 
 This repository includes an automated deployment script:
+
 - `Deploy/Build-And-Deploy.ps1`
 
 By default, the script will:
+
 1. Publish the service (`dotnet publish`) using `DefaultProfile`.
 2. Copy publish output to a timestamped remote release folder.
 3. Stop the existing service (if running).
@@ -71,6 +75,7 @@ C:\Program Files\CTS\TitanGatewayService\current\TitanGatewayService.exe
 ## Deploy again after code updates
 
 After making code changes:
+
 1. Commit and push your updates (recommended).
 2. Re-run the same deployment command from `Deploy`:
 
@@ -81,6 +86,7 @@ After making code changes:
 That command handles stop/backup/promote/start automatically.
 
 If you changed environment-specific configuration values:
+
 - Ensure `appsettings.json` exists in the deployed `current` folder.
 - Keep the filename exactly `appsettings.json`.
 - Restart by rerunning the deployment script (preferred) instead of manually copying partial files.
@@ -117,13 +123,13 @@ Confirm `BINARY_PATH_NAME` points to the `current\TitanGatewayService.exe` locat
 
 ## 2) Verify logs are being written
 
-Production log path is configured as `C:\CTS\Logs`, and logs are written as rolling files named `TitanGateway-*.log`.
+Production log path is configured as `C:\Program Files\CTS\TitanGatewayService\Logs`, and logs are written as rolling files named `TitanGateway-*.log`.
 
 Check newest log file:
 
 ```powershell
 Invoke-Command -Session $session -ScriptBlock {
-    Get-ChildItem "C:\CTS\Logs\TitanGateway-*.log" |
+    Get-ChildItem "C:\Program Files\CTS\TitanGatewayService\Logs\TitanGateway-*.log" |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 5
 }
@@ -133,7 +139,7 @@ Tail the latest log:
 
 ```powershell
 Invoke-Command -Session $session -ScriptBlock {
-    $latestLog = Get-ChildItem "C:\CTS\Logs\TitanGateway-*.log" |
+    $latestLog = Get-ChildItem "C:\Program Files\CTS\TitanGatewayService\LogsTitanGateway-*.log" |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
 
