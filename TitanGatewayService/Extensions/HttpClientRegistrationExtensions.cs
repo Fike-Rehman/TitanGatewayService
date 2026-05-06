@@ -1,7 +1,8 @@
-﻿using Polly;
+using Polly;
 using Polly.Extensions.Http;
 using TitanGatewayService.Devices.Miranda;
 using TitanGatewayService.Devices.Oberon;
+using TitanGatewayService.Devices.Core;
 
 namespace TitanGatewayService.Extensions
 {
@@ -66,5 +67,5 @@ namespace TitanGatewayService.Extensions
 
             return services;
         }
-    }   
+    }
 }

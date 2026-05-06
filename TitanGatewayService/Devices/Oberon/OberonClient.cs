@@ -1,5 +1,6 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Runtime;
+using TitanGatewayService.Devices.Core;
 
 namespace TitanGatewayService.Devices.Oberon
 {
@@ -13,8 +14,8 @@ namespace TitanGatewayService.Devices.Oberon
 
         public OberonClient(
             HttpClient httpClient,
-            string name, 
-            string location, 
+            string name,
+            string location,
             string baseUrl)
         {
             _httpClient = httpClient;

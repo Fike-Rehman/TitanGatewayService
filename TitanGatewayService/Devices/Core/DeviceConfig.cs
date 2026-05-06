@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace TitanGatewayService
+namespace TitanGatewayService.Devices.Core
 {
     public class DeviceConfig
     {

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using TitanGatewayService.Devices.Miranda;
 using TitanGatewayService.Devices.Oberon;
+using TitanGatewayService.Devices.Core;
 
 namespace TitanGatewayService
 {

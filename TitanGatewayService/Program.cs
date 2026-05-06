@@ -5,6 +5,7 @@ using TitanGatewayService;
 using TitanGatewayService.Devices.Miranda;
 using TitanGatewayService.Devices.Oberon;
 using TitanGatewayService.Extensions;
+using TitanGatewayService.Devices.Core;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService();
