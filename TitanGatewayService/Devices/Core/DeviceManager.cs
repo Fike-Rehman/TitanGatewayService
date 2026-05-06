@@ -1,6 +1,5 @@
-﻿using TitanGatewayService.Devices;
 
-namespace TitanGatewayService
+namespace TitanGatewayService.Devices.Core
 {
     public class DeviceManager
     {

@@ -1,4 +1,4 @@
-﻿namespace TitanGatewayService
+﻿namespace TitanGatewayService.Devices.Core
 {
     public class DeviceConfigurationManager : IDeviceConfigurationManager
     {

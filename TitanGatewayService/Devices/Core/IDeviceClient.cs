@@ -1,4 +1,4 @@
-﻿namespace TitanGatewayService.Devices
+﻿namespace TitanGatewayService.Devices.Core
 {
     public interface IDeviceClient
     {
