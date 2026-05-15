@@ -6,6 +6,7 @@ using TitanGatewayService.Devices.Miranda;
 using TitanGatewayService.Devices.Oberon;
 using TitanGatewayService.Extensions;
 using TitanGatewayService.Devices.Core;
+using TitanGatewayService.Scheduling;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService();
@@ -58,6 +59,7 @@ builder.Services.AddSingleton<IDeviceFactory, DeviceFactory>();
 builder.Services.AddSingleton<DeviceManager>();
 
 builder.Services.AddHostedService<Worker>();
+builder.Services.AddHostedService<ScheduleExecutionService>();
 
 Log.Information("Starting Titan Gateway Service. Please Stand by ....");
 

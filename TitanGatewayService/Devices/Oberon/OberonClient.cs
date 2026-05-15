@@ -1,10 +1,9 @@
 using System.Net.Http.Headers;
-using System.Runtime;
 using TitanGatewayService.Devices.Core;
 
 namespace TitanGatewayService.Devices.Oberon
 {
-    public class OberonClient : IDeviceClient
+    public class OberonClient : ISwitchDevice
     {
         private readonly HttpClient _httpClient;
 
@@ -36,6 +35,28 @@ namespace TitanGatewayService.Devices.Oberon
             try
             {
                 var response = await _httpClient.GetAsync("ping");
+
+                return response.IsSuccessStatusCode
+                    ? "OK"
+                    : $"HTTP {(int)response.StatusCode}";
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        public async Task<string> TurnOnAsync(string? switchId = null, CancellationToken cancellationToken = default)
+            => await SendSwitchCommandAsync("on", cancellationToken);
+
+        public async Task<string> TurnOffAsync(string? switchId = null, CancellationToken cancellationToken = default)
+            => await SendSwitchCommandAsync("off", cancellationToken);
+
+        private async Task<string> SendSwitchCommandAsync(string action, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync(action, cancellationToken);
 
                 return response.IsSuccessStatusCode
                     ? "OK"
