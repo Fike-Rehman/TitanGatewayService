@@ -85,8 +85,8 @@ namespace TitanGatewayService.Scheduling
                 return;
             }
 
-            var delta = (now - scheduledAt.Value).Duration();
-            if (delta > TimeSpan.FromSeconds(30))
+            var executionWindow = TimeSpan.FromMinutes(2);
+            if (now < scheduledAt.Value || now - scheduledAt.Value > executionWindow)
             {
                 return;
             }
