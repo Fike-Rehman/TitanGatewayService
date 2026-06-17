@@ -214,12 +214,8 @@ namespace TitanGatewayService.Scheduling
                 return;
             }
 
-            scheduledEvents.Add(new ScheduledSwitchEvent(device, switchId, action, scheduledAt.Value));
-        }
-
-        private void SaveSolarTimesToCache(SolarTimes solarTimes)
-        {
-            try
+            var executionWindow = TimeSpan.FromMinutes(2);
+            if (now < scheduledAt.Value || now - scheduledAt.Value > executionWindow)
             {
                 var json = JsonConvert.SerializeObject(solarTimes, Formatting.Indented);
                 File.WriteAllText(_solarCacheFilePath, json);
