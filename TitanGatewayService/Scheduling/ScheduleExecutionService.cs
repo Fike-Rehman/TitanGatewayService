@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 using TitanGatewayService.Devices.Core;
 using TitanGatewayService.Devices.Miranda;
 using TitanGatewayService.Devices.Oberon;
@@ -7,12 +8,15 @@ namespace TitanGatewayService.Scheduling
 {
     public sealed class ScheduleExecutionService : BackgroundService
     {
+        private static readonly TimeSpan DailySolarRefreshTime = TimeSpan.FromMinutes(5);
+
         private readonly ILogger<ScheduleExecutionService> _logger;
         private readonly DeviceManager _deviceManager;
         private readonly SolarApiClient _solarApiClient;
         private readonly MirandaScheduleOptions _mirandaSchedule;
         private readonly OberonScheduleOptions _oberonSchedule;
-        private readonly Dictionary<string, DateTime> _lastExecutionByKey = new(StringComparer.OrdinalIgnoreCase);
+        private readonly string _solarCacheFilePath;
+        private readonly HashSet<string> _executedEventKeys = new(StringComparer.OrdinalIgnoreCase);
 
         public ScheduleExecutionService(
             ILogger<ScheduleExecutionService> logger,
@@ -26,6 +30,7 @@ namespace TitanGatewayService.Scheduling
             _solarApiClient = solarApiClient ?? throw new ArgumentNullException(nameof(solarApiClient));
             _mirandaSchedule = mirandaScheduleOptions?.Value ?? new MirandaScheduleOptions();
             _oberonSchedule = oberonScheduleOptions?.Value ?? new OberonScheduleOptions();
+            _solarCacheFilePath = Path.Combine(AppContext.BaseDirectory, "solar-times-cache.json");
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -34,29 +39,150 @@ namespace TitanGatewayService.Scheduling
             {
                 try
                 {
-                    await ExecuteDueActionsAsync(stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Unexpected error while executing scheduled actions.");
-                }
+                    var today = DateTime.Now.Date;
+                    _executedEventKeys.Clear();
 
-                try
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                    var solarTimes = await GetSolarTimesForScheduleAsync(today, stoppingToken);
+                    var todaysEvents = BuildDailySchedule(today, solarTimes).OrderBy(e => e.ScheduledAt).ToList();
+
+                    await CatchUpMissedEventsAsync(todaysEvents, DateTime.Now, stoppingToken);
+                    await ExecuteRemainingScheduleForTodayAsync(todaysEvents, today, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     break;
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unexpected error while executing scheduled actions. Retrying scheduler loop in one minute.");
+                    await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                }
             }
         }
 
-        private async Task ExecuteDueActionsAsync(CancellationToken cancellationToken)
+        private async Task ExecuteRemainingScheduleForTodayAsync(List<ScheduledSwitchEvent> todaysEvents, DateTime scheduleDate, CancellationToken cancellationToken)
         {
-            var (sunrise, sunset) = await _solarApiClient.GetSolarTimesAsync();
-            var now = DateTime.Now;
-            var today = now.Date;
+            var nextRefreshAt = scheduleDate.AddDays(1).Add(DailySolarRefreshTime);
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var now = DateTime.Now;
+                if (now >= nextRefreshAt)
+                {
+                    _logger.LogInformation("Refreshing solar schedule for the new day at {RefreshAt}.", now);
+                    return;
+                }
+
+                var nextEvent = todaysEvents
+                    .Where(e => e.ScheduledAt > now && !_executedEventKeys.Contains(e.EventKey))
+                    .OrderBy(e => e.ScheduledAt)
+                    .FirstOrDefault();
+
+                var nextWakeUp = nextEvent is null || nextEvent.ScheduledAt > nextRefreshAt
+                    ? nextRefreshAt
+                    : nextEvent.ScheduledAt;
+
+                await DelayUntilAsync(nextWakeUp, cancellationToken);
+
+                now = DateTime.Now;
+                foreach (var dueEvent in todaysEvents.Where(e => e.ScheduledAt <= now && !_executedEventKeys.Contains(e.EventKey)).OrderBy(e => e.ScheduledAt))
+                {
+                    await ExecuteScheduledEventAsync(dueEvent, cancellationToken);
+                }
+            }
+        }
+
+        private async Task CatchUpMissedEventsAsync(List<ScheduledSwitchEvent> todaysEvents, DateTime now, CancellationToken cancellationToken)
+        {
+            var latestMissedEventsBySwitch = todaysEvents
+                .Where(e => e.ScheduledAt <= now)
+                .GroupBy(e => e.TargetKey, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(e => e.ScheduledAt).First())
+                .OrderBy(e => e.ScheduledAt)
+                .ToList();
+
+            if (latestMissedEventsBySwitch.Count == 0)
+            {
+                return;
+            }
+
+            _logger.LogInformation("Catching up {EventCount} missed scheduled events for {ScheduleDate}.", latestMissedEventsBySwitch.Count, now.Date);
+
+            foreach (var missedEvent in latestMissedEventsBySwitch)
+            {
+                await ExecuteScheduledEventAsync(missedEvent, cancellationToken);
+            }
+
+            foreach (var pastEvent in todaysEvents.Where(e => e.ScheduledAt <= now))
+            {
+                _executedEventKeys.Add(pastEvent.EventKey);
+            }
+        }
+
+        private async Task ExecuteScheduledEventAsync(ScheduledSwitchEvent scheduledEvent, CancellationToken cancellationToken)
+        {
+            if (!_executedEventKeys.Add(scheduledEvent.EventKey))
+            {
+                return;
+            }
+
+            var ping = await scheduledEvent.Device.PingAsync();
+            if (!string.Equals(ping, "OK", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Skipping scheduled action {Action} for {DeviceName} (SwitchId: {SwitchId}). Device is offline: {PingStatus}", scheduledEvent.Action, scheduledEvent.Device.Name, scheduledEvent.SwitchId ?? "N/A", ping);
+                return;
+            }
+
+            var result = scheduledEvent.Action.Equals("On", StringComparison.OrdinalIgnoreCase)
+                ? await scheduledEvent.Device.TurnOnAsync(scheduledEvent.SwitchId, cancellationToken)
+                : await scheduledEvent.Device.TurnOffAsync(scheduledEvent.SwitchId, cancellationToken);
+
+            _logger.LogInformation("Executed scheduled action {Action} for {DeviceName} (SwitchId: {SwitchId}) at {ScheduledAt}. Result: {Result}", scheduledEvent.Action, scheduledEvent.Device.Name, scheduledEvent.SwitchId ?? "N/A", scheduledEvent.ScheduledAt, result);
+        }
+
+        private async Task<SolarTimes?> GetSolarTimesForScheduleAsync(DateTime scheduleDate, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var (sunrise, sunset) = await _solarApiClient.GetSolarTimesAsync(scheduleDate, cancellationToken);
+                var solarTimes = new SolarTimes
+                {
+                    ScheduleDate = scheduleDate,
+                    Sunrise = sunrise,
+                    Sunset = sunset
+                };
+
+                SaveSolarTimesToCache(solarTimes);
+                _logger.LogInformation("Loaded solar times for {ScheduleDate}. Sunrise: {Sunrise}, Sunset: {Sunset}", scheduleDate, sunrise, sunset);
+
+                return solarTimes;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to retrieve solar times for {ScheduleDate}. Attempting to use last known cached sunrise/sunset times.", scheduleDate);
+
+                var cachedSolarTimes = LoadSolarTimesFromCache();
+                if (cachedSolarTimes is null)
+                {
+                    _logger.LogError("No cached solar times are available. SolarOffset events cannot be scheduled for {ScheduleDate}; DailyTime events will continue to run.", scheduleDate);
+                    return null;
+                }
+
+                var adjustedSolarTimes = new SolarTimes
+                {
+                    ScheduleDate = scheduleDate,
+                    Sunrise = scheduleDate.Add(cachedSolarTimes.Sunrise.TimeOfDay),
+                    Sunset = scheduleDate.Add(cachedSolarTimes.Sunset.TimeOfDay)
+                };
+
+                _logger.LogWarning("Using cached solar times from {CachedScheduleDate} for {ScheduleDate}. Sunrise: {Sunrise}, Sunset: {Sunset}", cachedSolarTimes.ScheduleDate, scheduleDate, adjustedSolarTimes.Sunrise, adjustedSolarTimes.Sunset);
+                return adjustedSolarTimes;
+            }
+        }
+
+        private List<ScheduledSwitchEvent> BuildDailySchedule(DateTime today, SolarTimes? solarTimes)
+        {
+            var scheduledEvents = new List<ScheduledSwitchEvent>();
 
             foreach (var device in _deviceManager.Devices.OfType<ISwitchDevice>())
             {
@@ -64,7 +190,7 @@ namespace TitanGatewayService.Scheduling
                 {
                     foreach (var ev in schedule.Events)
                     {
-                        await TryExecuteEventAsync(device, ev.Action, schedule.SwitchId, ResolveEventTime(today, ev.Type, ev.Time, ev.SolarEvent, ev.OffsetMinutes, sunrise, sunset), now, cancellationToken);
+                        AddScheduledEvent(scheduledEvents, device, schedule.SwitchId, ev.Action, ResolveEventTime(today, ev.Type, ev.Time, ev.SolarEvent, ev.OffsetMinutes, solarTimes));
                     }
                 }
 
@@ -72,44 +198,64 @@ namespace TitanGatewayService.Scheduling
                 {
                     foreach (var ev in schedule.Events)
                     {
-                        await TryExecuteEventAsync(device, ev.Action, null, ResolveEventTime(today, ev.Type, ev.Time, ev.SolarEvent, ev.OffsetMinutes, sunrise, sunset), now, cancellationToken);
+                        AddScheduledEvent(scheduledEvents, device, null, ev.Action, ResolveEventTime(today, ev.Type, ev.Time, ev.SolarEvent, ev.OffsetMinutes, solarTimes));
                     }
                 }
             }
+
+            _logger.LogInformation("Built {EventCount} scheduled events for {ScheduleDate}.", scheduledEvents.Count, today);
+            return scheduledEvents;
         }
 
-        private async Task TryExecuteEventAsync(ISwitchDevice device, string action, string? switchId, DateTime? scheduledAt, DateTime now, CancellationToken cancellationToken)
+        private static void AddScheduledEvent(List<ScheduledSwitchEvent> scheduledEvents, ISwitchDevice device, string? switchId, string action, DateTime? scheduledAt)
         {
             if (!scheduledAt.HasValue)
             {
                 return;
             }
 
-            var delta = (now - scheduledAt.Value).Duration();
-            if (delta > TimeSpan.FromSeconds(30))
+            scheduledEvents.Add(new ScheduledSwitchEvent(device, switchId, action, scheduledAt.Value));
+        }
+
+        private void SaveSolarTimesToCache(SolarTimes solarTimes)
+        {
+            try
             {
-                return;
+                var json = JsonConvert.SerializeObject(solarTimes, Formatting.Indented);
+                File.WriteAllText(_solarCacheFilePath, json);
             }
-
-            var key = $"{device.Name}|{switchId}|{action}|{scheduledAt:O}";
-            if (_lastExecutionByKey.TryGetValue(key, out var lastRun) && lastRun.Date == now.Date)
+            catch (Exception ex)
             {
-                return;
+                _logger.LogWarning(ex, "Failed to save solar times cache to {CacheFilePath}.", _solarCacheFilePath);
             }
+        }
 
-            var ping = await device.PingAsync();
-            if (!string.Equals(ping, "OK", StringComparison.OrdinalIgnoreCase))
+        private SolarTimes? LoadSolarTimesFromCache()
+        {
+            try
             {
-                _logger.LogWarning("Skipping scheduled action {Action} for {DeviceName} (SwitchId: {SwitchId}). Device is offline: {PingStatus}", action, device.Name, switchId ?? "N/A", ping);
-                return;
+                if (!File.Exists(_solarCacheFilePath))
+                {
+                    return null;
+                }
+
+                var json = File.ReadAllText(_solarCacheFilePath);
+                return JsonConvert.DeserializeObject<SolarTimes>(json);
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load solar times cache from {CacheFilePath}.", _solarCacheFilePath);
+                return null;
+            }
+        }
 
-            var result = action.Equals("On", StringComparison.OrdinalIgnoreCase)
-                ? await device.TurnOnAsync(switchId, cancellationToken)
-                : await device.TurnOffAsync(switchId, cancellationToken);
-
-            _lastExecutionByKey[key] = now;
-            _logger.LogInformation("Executed scheduled action {Action} for {DeviceName} (SwitchId: {SwitchId}) at {ScheduledAt}. Result: {Result}", action, device.Name, switchId ?? "N/A", scheduledAt, result);
+        private static async Task DelayUntilAsync(DateTime wakeUpAt, CancellationToken cancellationToken)
+        {
+            var delay = wakeUpAt - DateTime.Now;
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay, cancellationToken);
+            }
         }
 
         private IEnumerable<MirandaSwitchSchedule> GetMirandaSchedules(string deviceName) =>
@@ -118,7 +264,7 @@ namespace TitanGatewayService.Scheduling
         private IEnumerable<OberonDeviceSchedule> GetOberonSchedules(string deviceName) =>
             _oberonSchedule.Devices.Where(d => string.Equals(d.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
 
-        private static DateTime? ResolveEventTime(DateTime today, string type, TimeSpan? time, string solarEvent, int offsetMinutes, DateTime sunrise, DateTime sunset)
+        private static DateTime? ResolveEventTime(DateTime today, string type, TimeSpan? time, string solarEvent, int offsetMinutes, SolarTimes? solarTimes)
         {
             if (type.Equals("DailyTime", StringComparison.OrdinalIgnoreCase))
             {
@@ -127,11 +273,29 @@ namespace TitanGatewayService.Scheduling
 
             if (type.Equals("SolarOffset", StringComparison.OrdinalIgnoreCase))
             {
-                var solarBase = solarEvent.Equals("Sunrise", StringComparison.OrdinalIgnoreCase) ? sunrise : sunset;
+                if (solarTimes is null)
+                {
+                    return null;
+                }
+
+                var solarBase = solarEvent.Equals("Sunrise", StringComparison.OrdinalIgnoreCase) ? solarTimes.Sunrise : solarTimes.Sunset;
                 return solarBase.AddMinutes(offsetMinutes);
             }
 
             return null;
+        }
+
+        private sealed record ScheduledSwitchEvent(ISwitchDevice Device, string? SwitchId, string Action, DateTime ScheduledAt)
+        {
+            public string TargetKey => $"{Device.Name}|{SwitchId}";
+            public string EventKey => $"{TargetKey}|{Action}|{ScheduledAt:O}";
+        }
+
+        private sealed class SolarTimes
+        {
+            public DateTime ScheduleDate { get; set; }
+            public DateTime Sunrise { get; set; }
+            public DateTime Sunset { get; set; }
         }
     }
 }

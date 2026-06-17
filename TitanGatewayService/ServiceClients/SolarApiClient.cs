@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using TitanGatewayService.Extensions;
 using TitanGatewayService.ServiceClients.SolarServiceModel;
@@ -21,18 +21,21 @@ namespace TitanGatewayService
             _httpClient.Timeout = _options.Value.TimeoutSeconds;
         }
 
-        public async Task<(DateTime sunrise, DateTime sunset)> GetSolarTimesAsync()
+        public Task<(DateTime sunrise, DateTime sunset)> GetSolarTimesAsync() =>
+            GetSolarTimesAsync(DateTime.Now.Date, CancellationToken.None);
+
+        public async Task<(DateTime sunrise, DateTime sunset)> GetSolarTimesAsync(DateTime date, CancellationToken cancellationToken = default)
         {
-            var url = $"json?lat={_options.Value.Latitude}&lng={_options.Value.Longitude}&formatted=0";
+            var url = $"json?lat={_options.Value.Latitude}&lng={_options.Value.Longitude}&date={date:yyyy-MM-dd}&formatted=0";
 
             try
             {
-                using var response = await _httpClient.GetAsync(url);
+                using var response = await _httpClient.GetAsync(url, cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
                     throw new Exception("API request failed");
 
-                var json = await response.Content.ReadAsStringAsync();
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
 
                 var solarData = JsonConvert.DeserializeObject<SolarResponse>(json);
 
@@ -48,7 +51,7 @@ namespace TitanGatewayService
                 var sunsetLocal = solarData.Results.Sunset.ToLocalTime();
 
                 // If sunset is for previous day, bump it to next one
-                if (sunsetLocal.Date < DateTime.Now.Date)
+                if (sunsetLocal.Date < date.Date)
                 {
                     sunsetLocal = sunsetLocal.AddDays(1);
                 }
