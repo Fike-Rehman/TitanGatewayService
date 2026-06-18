@@ -297,12 +297,5 @@ namespace TitanGatewayService.Scheduling
             public string TargetKey => $"{Device.Name}|{SwitchId}";
             public string EventKey => $"{TargetKey}|{Action}|{ScheduledAt:O}";
         }
-
-        private sealed class SolarTimes
-        {
-            public DateTime ScheduleDate { get; set; }
-            public DateTime Sunrise { get; set; }
-            public DateTime Sunset { get; set; }
-        }
     }
 }
