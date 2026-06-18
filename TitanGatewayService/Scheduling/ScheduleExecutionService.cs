@@ -8,6 +8,8 @@ namespace TitanGatewayService.Scheduling
 {
     public sealed class ScheduleExecutionService : BackgroundService
     {
+        // To avoid hitting the solar API at exactly midnight and to allow for some buffer in case of slight delays in service startup,
+        // the schedule is refreshed at 12:05 AM each day.
         private static readonly TimeSpan DailySolarRefreshTime = TimeSpan.FromMinutes(5);
 
         private readonly ILogger<ScheduleExecutionService> _logger;
@@ -39,14 +41,20 @@ namespace TitanGatewayService.Scheduling
             {
                 try
                 {
-                    var today = DateTime.Now.Date;
+                    var scheduleDate = DateTime.Now.Date;
                     _executedEventKeys.Clear();
 
-                    var solarTimes = await GetSolarTimesForScheduleAsync(today, stoppingToken);
-                    var todaysEvents = BuildDailySchedule(today, solarTimes).OrderBy(e => e.ScheduledAt).ToList();
+                    var solarTimes = await GetSolarTimesForScheduleAsync(scheduleDate, stoppingToken);
+                    
+                    var todaysEvents = BuildDailySchedule(scheduleDate, solarTimes)
+                        .OrderBy(e => e.ScheduledAt)
+                        .ToList();
 
+                    // Execute any events that were missed between the last schedule refresh and now, to ensure we end up in the correct state for the current time.
                     await CatchUpMissedEventsAsync(todaysEvents, DateTime.Now, stoppingToken);
-                    await ExecuteRemainingScheduleForTodayAsync(todaysEvents, today, stoppingToken);
+
+                    // This blocks until tomorrow's refresh time, so the schedule is not rebuilt repeatedly.
+                    await ExecuteRemainingScheduleForTodayAsync(todaysEvents, scheduleDate, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -82,7 +90,12 @@ namespace TitanGatewayService.Scheduling
                     ? nextRefreshAt
                     : nextEvent.ScheduledAt;
 
-                await DelayUntilAsync(nextWakeUp, cancellationToken);
+                // await DelayUntilAsync(nextWakeUp, cancellationToken);
+                var delay = nextWakeUp - DateTime.Now;
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
 
                 now = DateTime.Now;
                 foreach (var dueEvent in todaysEvents.Where(e => e.ScheduledAt <= now && !_executedEventKeys.Contains(e.EventKey)).OrderBy(e => e.ScheduledAt))
@@ -140,7 +153,7 @@ namespace TitanGatewayService.Scheduling
             _logger.LogInformation("Executed scheduled action {Action} for {DeviceName} (SwitchId: {SwitchId}) at {ScheduledAt}. Result: {Result}", scheduledEvent.Action, scheduledEvent.Device.Name, scheduledEvent.SwitchId ?? "N/A", scheduledEvent.ScheduledAt, result);
         }
 
-        private async Task<SolarTimes?> GetSolarTimesForScheduleAsync(DateTime scheduleDate, CancellationToken cancellationToken)
+        private async Task<SolarTimes> GetSolarTimesForScheduleAsync(DateTime scheduleDate, CancellationToken cancellationToken)
         {
             try
             {
@@ -180,7 +193,7 @@ namespace TitanGatewayService.Scheduling
             }
         }
 
-        private List<ScheduledSwitchEvent> BuildDailySchedule(DateTime today, SolarTimes? solarTimes)
+        private List<ScheduledSwitchEvent> BuildDailySchedule(DateTime scheduleDate, SolarTimes solarTimes)
         {
             var scheduledEvents = new List<ScheduledSwitchEvent>();
 
@@ -190,7 +203,12 @@ namespace TitanGatewayService.Scheduling
                 {
                     foreach (var ev in schedule.Events)
                     {
-                        AddScheduledEvent(scheduledEvents, device, schedule.SwitchId, ev.Action, ResolveEventTime(today, ev.Type, ev.Time, ev.SolarEvent, ev.OffsetMinutes, solarTimes));
+                        var scheduledAt = ResolveEventTime(scheduleDate, ev.Type, ev.Time, ev.SolarEvent, ev.OffsetMinutes, solarTimes);
+
+                        if (scheduledAt.HasValue)
+                        {
+                            scheduledEvents.Add(new ScheduledSwitchEvent(device, schedule.SwitchId, ev.Action, scheduledAt.Value));
+                        }
                     }
                 }
 
@@ -198,24 +216,25 @@ namespace TitanGatewayService.Scheduling
                 {
                     foreach (var ev in schedule.Events)
                     {
-                        AddScheduledEvent(scheduledEvents, device, null, ev.Action, ResolveEventTime(today, ev.Type, ev.Time, ev.SolarEvent, ev.OffsetMinutes, solarTimes));
+                        var scheduledAt = ResolveEventTime(scheduleDate, ev.Type, ev.Time, ev.SolarEvent, ev.OffsetMinutes, solarTimes);
+
+                        if (scheduledAt.HasValue)
+                        {
+                            scheduledEvents.Add(new ScheduledSwitchEvent(device, null, ev.Action, scheduledAt.Value));
+                        }
                     }
                 }
             }
 
-            _logger.LogInformation("Built {EventCount} scheduled events for {ScheduleDate}.", scheduledEvents.Count, today);
+            _logger.LogInformation("Built {EventCount} scheduled events for {ScheduleDate}.", scheduledEvents.Count, scheduleDate);
+
             return scheduledEvents;
         }
 
-        private static void AddScheduledEvent(List<ScheduledSwitchEvent> scheduledEvents, ISwitchDevice device, string? switchId, string action, DateTime? scheduledAt)
+        
+        private void SaveSolarTimesToCache(SolarTimes solarTimes)
         {
-            if (!scheduledAt.HasValue)
-            {
-                return;
-            }
-
-            var executionWindow = TimeSpan.FromMinutes(2);
-            if (now < scheduledAt.Value || now - scheduledAt.Value > executionWindow)
+            try
             {
                 var json = JsonConvert.SerializeObject(solarTimes, Formatting.Indented);
                 File.WriteAllText(_solarCacheFilePath, json);
@@ -226,7 +245,7 @@ namespace TitanGatewayService.Scheduling
             }
         }
 
-        private SolarTimes? LoadSolarTimesFromCache()
+        private SolarTimes LoadSolarTimesFromCache()
         {
             try
             {
@@ -245,22 +264,14 @@ namespace TitanGatewayService.Scheduling
             }
         }
 
-        private static async Task DelayUntilAsync(DateTime wakeUpAt, CancellationToken cancellationToken)
-        {
-            var delay = wakeUpAt - DateTime.Now;
-            if (delay > TimeSpan.Zero)
-            {
-                await Task.Delay(delay, cancellationToken);
-            }
-        }
-
+        
         private IEnumerable<MirandaSwitchSchedule> GetMirandaSchedules(string deviceName) =>
             _mirandaSchedule.Switches.Where(s => string.Equals(s.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
 
         private IEnumerable<OberonDeviceSchedule> GetOberonSchedules(string deviceName) =>
             _oberonSchedule.Devices.Where(d => string.Equals(d.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
 
-        private static DateTime? ResolveEventTime(DateTime today, string type, TimeSpan? time, string solarEvent, int offsetMinutes, SolarTimes? solarTimes)
+        private static DateTime? ResolveEventTime(DateTime today, string type, TimeSpan? time, string solarEvent, int offsetMinutes, SolarTimes solarTimes)
         {
             if (type.Equals("DailyTime", StringComparison.OrdinalIgnoreCase))
             {
@@ -281,7 +292,7 @@ namespace TitanGatewayService.Scheduling
             return null;
         }
 
-        private sealed record ScheduledSwitchEvent(ISwitchDevice Device, string? SwitchId, string Action, DateTime ScheduledAt)
+        private sealed record ScheduledSwitchEvent(ISwitchDevice Device, string SwitchId, string Action, DateTime ScheduledAt)
         {
             public string TargetKey => $"{Device.Name}|{SwitchId}";
             public string EventKey => $"{TargetKey}|{Action}|{ScheduledAt:O}";

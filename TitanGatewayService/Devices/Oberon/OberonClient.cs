@@ -46,10 +46,10 @@ namespace TitanGatewayService.Devices.Oberon
             }
         }
 
-        public async Task<string> TurnOnAsync(string? switchId = null, CancellationToken cancellationToken = default)
+        public async Task<string> TurnOnAsync(string switchId = null, CancellationToken cancellationToken = default)
             => await SendSwitchCommandAsync("on", cancellationToken);
 
-        public async Task<string> TurnOffAsync(string? switchId = null, CancellationToken cancellationToken = default)
+        public async Task<string> TurnOffAsync(string switchId = null, CancellationToken cancellationToken = default)
             => await SendSwitchCommandAsync("off", cancellationToken);
 
         private async Task<string> SendSwitchCommandAsync(string action, CancellationToken cancellationToken)

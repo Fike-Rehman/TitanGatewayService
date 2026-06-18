@@ -21,9 +21,6 @@ namespace TitanGatewayService
             _httpClient.Timeout = _options.Value.TimeoutSeconds;
         }
 
-        public Task<(DateTime sunrise, DateTime sunset)> GetSolarTimesAsync() =>
-            GetSolarTimesAsync(DateTime.Now.Date, CancellationToken.None);
-
         public async Task<(DateTime sunrise, DateTime sunset)> GetSolarTimesAsync(DateTime date, CancellationToken cancellationToken = default)
         {
             var url = $"json?lat={_options.Value.Latitude}&lng={_options.Value.Longitude}&date={date:yyyy-MM-dd}&formatted=0";

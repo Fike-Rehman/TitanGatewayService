@@ -46,13 +46,13 @@ namespace TitanGatewayService.Devices.Miranda
             }
         }
 
-        public async Task<string> TurnOnAsync(string? switchId = null, CancellationToken cancellationToken = default)
+        public async Task<string> TurnOnAsync(string switchId = null, CancellationToken cancellationToken = default)
             => await SendSwitchCommandAsync("on", switchId, cancellationToken);
 
-        public async Task<string> TurnOffAsync(string? switchId = null, CancellationToken cancellationToken = default)
+        public async Task<string> TurnOffAsync(string switchId = null, CancellationToken cancellationToken = default)
             => await SendSwitchCommandAsync("off", switchId, cancellationToken);
 
-        private async Task<string> SendSwitchCommandAsync(string action, string? switchId, CancellationToken cancellationToken)
+        private async Task<string> SendSwitchCommandAsync(string action, string switchId, CancellationToken cancellationToken)
         {
             try
             {

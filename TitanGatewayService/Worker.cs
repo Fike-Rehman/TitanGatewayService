@@ -29,7 +29,7 @@ namespace TitanGatewayService
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var (sunrise, sunset) = await _solarApiClient.GetSolarTimesAsync();
+            var (sunrise, sunset) = await _solarApiClient.GetSolarTimesAsync(DateTime.Now, stoppingToken);
 
             _logger.LogInformation("");
             _logger.LogInformation("Today's Sunrise at: {Sunrise}, Sunset at: {Sunset}", sunrise, sunset);
