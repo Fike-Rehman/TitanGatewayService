@@ -68,13 +68,14 @@ namespace TitanGatewayService.Scheduling
             }
         }
 
-        private async Task ExecuteRemainingScheduleForTodayAsync(List<ScheduledSwitchEvent> todaysEvents, DateTime scheduleDate, CancellationToken cancellationToken)
+        internal async Task ExecuteRemainingScheduleForTodayAsync(List<ScheduledSwitchEvent> todaysEvents, DateTime scheduleDate, CancellationToken cancellationToken, TimeProvider timeProvider = null)
         {
+            timeProvider ??= TimeProvider.System;
             var nextRefreshAt = scheduleDate.AddDays(1).Add(DailySolarRefreshTime);
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                var now = DateTime.Now;
+                var now = timeProvider.GetLocalNow().DateTime;
                 if (now >= nextRefreshAt)
                 {
                     _logger.LogInformation("Refreshing solar schedule for the new day at {RefreshAt}.", now);
@@ -82,7 +83,8 @@ namespace TitanGatewayService.Scheduling
                 }
 
                 var nextEvent = todaysEvents
-                    .Where(e => e.ScheduledAt > now && !_executedEventKeys.Contains(e.EventKey))
+                    // Keep overdue events eligible: an early wake or a slow command can cross a deadline.
+                    .Where(e => !_executedEventKeys.Contains(e.EventKey))
                     .OrderBy(e => e.ScheduledAt)
                     .FirstOrDefault();
 
@@ -90,14 +92,13 @@ namespace TitanGatewayService.Scheduling
                     ? nextRefreshAt
                     : nextEvent.ScheduledAt;
 
-                // await DelayUntilAsync(nextWakeUp, cancellationToken);
-                var delay = nextWakeUp - DateTime.Now;
+                var delay = nextWakeUp - timeProvider.GetLocalNow().DateTime;
                 if (delay > TimeSpan.Zero)
                 {
-                    await Task.Delay(delay, cancellationToken);
+                    await Task.Delay(delay, timeProvider, cancellationToken);
                 }
 
-                now = DateTime.Now;
+                now = timeProvider.GetLocalNow().DateTime;
                 foreach (var dueEvent in todaysEvents.Where(e => e.ScheduledAt <= now && !_executedEventKeys.Contains(e.EventKey)).OrderBy(e => e.ScheduledAt))
                 {
                     await ExecuteScheduledEventAsync(dueEvent, cancellationToken);
@@ -292,7 +293,7 @@ namespace TitanGatewayService.Scheduling
             return null;
         }
 
-        private sealed record ScheduledSwitchEvent(ISwitchDevice Device, string SwitchId, string Action, DateTime ScheduledAt)
+        internal sealed record ScheduledSwitchEvent(ISwitchDevice Device, string SwitchId, string Action, DateTime ScheduledAt)
         {
             public string TargetKey => $"{Device.Name}|{SwitchId}";
             public string EventKey => $"{TargetKey}|{Action}|{ScheduledAt:O}";
