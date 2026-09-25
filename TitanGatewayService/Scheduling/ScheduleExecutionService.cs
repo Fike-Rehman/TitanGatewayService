@@ -8,9 +8,8 @@ namespace TitanGatewayService.Scheduling
 {
     public sealed class ScheduleExecutionService : BackgroundService
     {
-        // To avoid hitting the solar API at exactly midnight and to allow for some buffer in case of slight delays in service startup,
-        // the schedule is refreshed at 12:05 AM each day.
-        private static readonly TimeSpan DailySolarRefreshTime = TimeSpan.FromMinutes(5);
+        // Poll every 60 seconds. This could become a configuration setting if needed.
+        private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(60);
 
         private readonly ILogger<ScheduleExecutionService> _logger;
         private readonly DeviceManager _deviceManager;
@@ -35,26 +34,41 @@ namespace TitanGatewayService.Scheduling
             _solarCacheFilePath = Path.Combine(AppContext.BaseDirectory, "solar-times-cache.json");
         }
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+            RunSchedulerAsync(stoppingToken, TimeProvider.System);
+
+        internal async Task RunSchedulerAsync(CancellationToken stoppingToken, TimeProvider timeProvider)
         {
+            DateTime? scheduleDate = null;
+            var events = new List<ScheduledSwitchEvent>();
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    var scheduleDate = DateTime.Now.Date;
-                    _executedEventKeys.Clear();
+                    var now = timeProvider.GetLocalNow().DateTime;
+                    if (scheduleDate != now.Date)
+                    {
+                        // Startup and the first poll of each new day rebuild state from configuration.
+                        // Yesterday supplies the state before today's first event (including overnight On).
+                        _executedEventKeys.Clear();
+                        var previousDate = now.Date.AddDays(-1);
+                        var previousSolarTimes = await GetSolarTimesForScheduleAsync(previousDate, stoppingToken);
+                        var solarTimes = await GetSolarTimesForScheduleAsync(now.Date, stoppingToken);
+                        events = BuildDailySchedule(previousDate, previousSolarTimes)
+                            .Concat(BuildDailySchedule(now.Date, solarTimes))
+                            .OrderBy(e => e.ScheduledAt)
+                            .ToList();
+                        scheduleDate = now.Date;
+                    }
 
-                    var solarTimes = await GetSolarTimesForScheduleAsync(scheduleDate, stoppingToken);
-                    
-                    var todaysEvents = BuildDailySchedule(scheduleDate, solarTimes)
-                        .OrderBy(e => e.ScheduledAt)
-                        .ToList();
-
-                    // Execute any events that were missed between the last schedule refresh and now, to ensure we end up in the correct state for the current time.
-                    await CatchUpMissedEventsAsync(todaysEvents, DateTime.Now, stoppingToken);
-
-                    // This blocks until tomorrow's refresh time, so the schedule is not rebuilt repeatedly.
-                    await ExecuteRemainingScheduleForTodayAsync(todaysEvents, scheduleDate, stoppingToken);
+                    // Refresh the clock after API calls. If midnight passed, rebuild before acting.
+                    now = timeProvider.GetLocalNow().DateTime;
+                    if (scheduleDate != now.Date)
+                    {
+                        continue;
+                    }
+                    await ApplyDueEventsAsync(events, now, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -62,76 +76,44 @@ namespace TitanGatewayService.Scheduling
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Unexpected error while executing scheduled actions. Retrying scheduler loop in one minute.");
-                    await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                    _logger.LogError(ex, "Unexpected error while polling scheduled actions. Retrying in one minute.");
+                }
+
+                try
+                {
+                    await Task.Delay(PollingInterval, timeProvider, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
                 }
             }
         }
 
-        private async Task ExecuteRemainingScheduleForTodayAsync(List<ScheduledSwitchEvent> todaysEvents, DateTime scheduleDate, CancellationToken cancellationToken)
+        internal async Task ApplyDueEventsAsync(List<ScheduledSwitchEvent> events, DateTime now, CancellationToken cancellationToken)
         {
-            var nextRefreshAt = scheduleDate.AddDays(1).Add(DailySolarRefreshTime);
-
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var now = DateTime.Now;
-                if (now >= nextRefreshAt)
-                {
-                    _logger.LogInformation("Refreshing solar schedule for the new day at {RefreshAt}.", now);
-                    return;
-                }
-
-                var nextEvent = todaysEvents
-                    .Where(e => e.ScheduledAt > now && !_executedEventKeys.Contains(e.EventKey))
-                    .OrderBy(e => e.ScheduledAt)
-                    .FirstOrDefault();
-
-                var nextWakeUp = nextEvent is null || nextEvent.ScheduledAt > nextRefreshAt
-                    ? nextRefreshAt
-                    : nextEvent.ScheduledAt;
-
-                // await DelayUntilAsync(nextWakeUp, cancellationToken);
-                var delay = nextWakeUp - DateTime.Now;
-                if (delay > TimeSpan.Zero)
-                {
-                    await Task.Delay(delay, cancellationToken);
-                }
-
-                now = DateTime.Now;
-                foreach (var dueEvent in todaysEvents.Where(e => e.ScheduledAt <= now && !_executedEventKeys.Contains(e.EventKey)).OrderBy(e => e.ScheduledAt))
-                {
-                    await ExecuteScheduledEventAsync(dueEvent, cancellationToken);
-                }
-            }
-        }
-
-        private async Task CatchUpMissedEventsAsync(List<ScheduledSwitchEvent> todaysEvents, DateTime now, CancellationToken cancellationToken)
-        {
-            var latestMissedEventsBySwitch = todaysEvents
-                .Where(e => e.ScheduledAt <= now)
-                .GroupBy(e => e.TargetKey, StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.OrderByDescending(e => e.ScheduledAt).First())
-                .OrderBy(e => e.ScheduledAt)
+            var dueEvents = events
+                .Where(e => e.ScheduledAt <= now && !_executedEventKeys.Contains(e.EventKey))
                 .ToList();
 
-            if (latestMissedEventsBySwitch.Count == 0)
+            // Apply the latest intended state per switch, not obsolete On/Off transitions.
+            // The <= comparison keeps events eligible even if a poll runs late.
+            var latestEvents = dueEvents
+                .GroupBy(e => e.TargetKey, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(e => e.ScheduledAt).First())
+                .OrderBy(e => e.ScheduledAt);
+
+            foreach (var scheduledEvent in latestEvents)
             {
-                return;
+                cancellationToken.ThrowIfCancellationRequested();
+                await ExecuteScheduledEventAsync(scheduledEvent, cancellationToken);
             }
 
-            _logger.LogInformation("Catching up {EventCount} missed scheduled events for {ScheduleDate}.", latestMissedEventsBySwitch.Count, now.Date);
-
-            foreach (var missedEvent in latestMissedEventsBySwitch)
-            {
-                await ExecuteScheduledEventAsync(missedEvent, cancellationToken);
-            }
-
-            foreach (var pastEvent in todaysEvents.Where(e => e.ScheduledAt <= now))
+            foreach (var pastEvent in dueEvents)
             {
                 _executedEventKeys.Add(pastEvent.EventKey);
             }
         }
-
         private async Task ExecuteScheduledEventAsync(ScheduledSwitchEvent scheduledEvent, CancellationToken cancellationToken)
         {
             if (!_executedEventKeys.Add(scheduledEvent.EventKey))
@@ -172,6 +154,7 @@ namespace TitanGatewayService.Scheduling
             }
             catch (Exception ex)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 _logger.LogError(ex, "Failed to retrieve solar times for {ScheduleDate}. Attempting to use last known cached sunrise/sunset times.", scheduleDate);
 
                 var cachedSolarTimes = LoadSolarTimesFromCache();
@@ -292,7 +275,7 @@ namespace TitanGatewayService.Scheduling
             return null;
         }
 
-        private sealed record ScheduledSwitchEvent(ISwitchDevice Device, string SwitchId, string Action, DateTime ScheduledAt)
+        internal sealed record ScheduledSwitchEvent(ISwitchDevice Device, string SwitchId, string Action, DateTime ScheduledAt)
         {
             public string TargetKey => $"{Device.Name}|{SwitchId}";
             public string EventKey => $"{TargetKey}|{Action}|{ScheduledAt:O}";
